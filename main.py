@@ -22,6 +22,26 @@ class Piece(pygame.sprite.Sprite):
         piece_index = self.pieces[piece_name]
         surface.blit(self.spritesheet, coords, self.cells[piece_index])
 
+# Maps graphical coordinates (ie. (200, 300)) to coordinate pair (ie. (1, 2))
+def graphical_coords_to_coords(graphical_coords):
+    graphical_x = graphical_coords[0]
+    graphical_y = graphical_coords[1]
+    x = (int)(graphical_x / 100)
+    y = (int)(graphical_y / 100)
+    return (x, y)
+
+def init_board():
+    board = [[None for _ in range(8)] for _ in range(8)]
+    board[7] = ["white_rook", "white_knight", "white_bishop", "white_queen", 
+                "white_king", "white_bishop", "white_knight", "white_rook"]
+    board[6] = ["white_pawn"] * 8
+
+    board[0] = ["black_rook", "black_knight", "black_bishop", "black_queen", 
+                "black_king", "black_bishop", "black_knight", "black_rook"]
+    board[1] = ["black_pawn"] * 8
+
+    return board
+
 # Initialize Pygame
 pygame.init()
 
@@ -41,24 +61,39 @@ LIGHT_GREEN = (238, 238, 210)  # A soft, light green
 # Size of squares
 square_size = screen_size[0] // 8
 
-# Initial positions of the pieces on the board
-initial_positions = {
-    "a1": "white_rook", "b1": "white_knight", "c1": "white_bishop", "d1": "white_queen",
-    "e1": "white_king", "f1": "white_bishop", "g1": "white_knight", "h1": "white_rook",
-    "a2": "white_pawn", "b2": "white_pawn", "c2": "white_pawn", "d2": "white_pawn",
-    "e2": "white_pawn", "f2": "white_pawn", "g2": "white_pawn", "h2": "white_pawn",
-    "a7": "black_pawn", "b7": "black_pawn", "c7": "black_pawn", "d7": "black_pawn",
-    "e7": "black_pawn", "f7": "black_pawn", "g7": "black_pawn", "h7": "black_pawn",
-    "a8": "black_rook", "b8": "black_knight", "c8": "black_bishop", "d8": "black_queen",
-    "e8": "black_king", "f8": "black_bishop", "g8": "black_knight", "h8": "black_rook",
-}
+board = init_board()
 
 # Game loop
 running = True
+selected_piece = None
+selected_position = None
+dragging = False
+mouse_pos = None
+
 while running:
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
+        elif event.type == pygame.MOUSEBUTTONDOWN:
+            mouse_pos = pygame.mouse.get_pos()
+            # print(mouse_pos)
+            col, row = graphical_coords_to_coords(mouse_pos)
+            if board[row][col]:
+                selected_piece = board[row][col]
+                # print(selected_piece)
+                selected_position = (col, row)
+                dragging = True
+        elif event.type == pygame.MOUSEMOTION and dragging:
+            mouse_pos = pygame.mouse.get_pos()
+            # print(mouse_pos)
+        elif event.type == pygame.MOUSEBUTTONUP:
+            if dragging:
+                mouse_pos = pygame.mouse.get_pos()
+                col, row = graphical_coords_to_coords(mouse_pos)
+                board[selected_position[1]][selected_position[0]] = None
+                board[row][col] = selected_piece
+                dragging = False
+
 
     # Draw the board with new colors
     for row in range(8):
@@ -66,17 +101,22 @@ while running:
             color = LIGHT_GREEN if (row + col) % 2 == 0 else DARK_GREEN
             pygame.draw.rect(screen, color, (col * square_size, row * square_size, square_size, square_size))
 
-    # Draw the pieces, centered in each square
-    for position, piece in initial_positions.items():
-        x = (ord(position[0]) - ord('a')) * square_size
-        y = (8 - int(position[1])) * square_size
-        # Centering the piece in the square
-        piece_width = chess_pieces.cell_width
-        piece_height = chess_pieces.cell_height
-        centered_x = x + (square_size - piece_width) // 2
-        centered_y = y + (square_size - piece_height) // 2
-        chess_pieces.draw(screen, piece, (centered_x, centered_y))
+    # Draw pieces
+    
+    for row in range(8):
+        for col in range(8):
+            piece = board[row][col]
+            if piece:
+                centered_x = col * square_size + (square_size - chess_pieces.cell_width) // 2
+                centered_y = row * square_size + (square_size - chess_pieces.cell_height) // 2
 
+                if not (dragging and (col, row) == selected_position):
+                    chess_pieces.draw(screen, piece, (centered_x, centered_y))
+
+    if dragging:
+        centered_x = mouse_pos[0] - chess_pieces.cell_width // 2
+        centered_y = mouse_pos[1] - chess_pieces.cell_height // 2
+        chess_pieces.draw(screen, selected_piece, (centered_x, centered_y))
     pygame.display.flip()
 
 
