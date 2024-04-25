@@ -69,7 +69,7 @@ while running:
     # Draw the pieces, centered in each square
     for position, piece in initial_positions.items():
         x = (ord(position[0]) - ord('a')) * square_size
-        y = (int(position[1]) - 1) * square_size
+        y = (8 - int(position[1])) * square_size
         # Centering the piece in the square
         piece_width = chess_pieces.cell_width
         piece_height = chess_pieces.cell_height
