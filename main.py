@@ -6,7 +6,7 @@ import chess
 running = True
 selected_piece = None
 selected_position = None
-selected_legal_moves = None
+selected_legal_moves = set()
 dragging = False
 mouse_pos = None
 fps = 60
@@ -58,18 +58,17 @@ def square_to_coords(square):
     return (chess.square_file(square), 7 - chess.square_rank(square))
 
 # Gets all legal moves for selected piece
-def get_selected_legal_moves():
-    ans = []
+def update_selected_legal_moves():
     selected_square = coords_to_square(selected_position[0], selected_position[1])
     for move in board.legal_moves:
         if move.from_square == selected_square:
-            ans.append(move)
-    return ans
+            # selected_legal_moves.add(move)
+            selected_legal_moves.add(move.to_square)
 
 # ---------- LOGIC FUNCTIONS ------------
 
 def start_piece_drag():
-    global selected_legal_moves, selected_piece, selected_position, dragging
+    global selected_piece, selected_position, dragging
 
     mouse_pos = pygame.mouse.get_pos()
     # print(mouse_pos)
@@ -80,7 +79,7 @@ def start_piece_drag():
         selected_piece = piece
         selected_position = (col, row)
         dragging = True
-        selected_legal_moves = get_selected_legal_moves()
+        update_selected_legal_moves()
         # print(selected_legal_moves)
 
 # def update_piece_drag():
@@ -91,11 +90,20 @@ def finish_piece_drag():
     global selected_piece, selected_position, dragging, selected_legal_moves
     mouse_pos = pygame.mouse.get_pos()
     col, row = graphical_coords_to_coords(mouse_pos)
-    # TODO: Update board
+
+    # Update board if move is valid.
+    square = coords_to_square(col, row)
+    if square in selected_legal_moves:
+        from_square = coords_to_square(selected_position[0], selected_position[1])
+        to_square = square
+        print(chess.SQUARE_NAMES[from_square], chess.SQUARE_NAMES[to_square])
+        move = chess.Move(from_square, to_square)
+        board.push(move)
+
     selected_piece = None
     selected_position = None
     dragging = False
-    selected_legal_moves = None
+    selected_legal_moves = set()
 
 
 # ---------- DRAWING FUNCTIONS ----------
@@ -107,8 +115,8 @@ def draw_board():
             pygame.draw.rect(screen, color, (col * square_size, row * square_size, square_size, square_size))
     if selected_legal_moves:
         for move in selected_legal_moves:
-            to_sq = move.to_square
-            col, row = square_to_coords(to_sq)
+            # to_sq = move.to_square
+            col, row = square_to_coords(move)
             pygame.draw.rect(screen, (255, 255, 0), (col * square_size, row * square_size, square_size, square_size))
 def draw_pieces_on_board():
     for row in range(8):
