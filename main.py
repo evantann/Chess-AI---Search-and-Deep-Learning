@@ -1,6 +1,9 @@
 import pygame
 import os
 import chess
+import numpy as np
+import re
+
 
 running = True
 selected_piece = None
@@ -12,6 +15,68 @@ max_depth = 3
 fps = 60
 clock = pygame.time.Clock()
 
+
+piece_square_table = [
+# pawn
+[[0,  0,  0,  0,  0,  0,  0,  0],
+[50, 50, 50, 50, 50, 50, 50, 50],
+[10, 10, 20, 30, 30, 20, 10, 10],
+[5,  5, 10, 25, 25, 10,  5,  5],
+[0,  0,  0, 20, 20,  0,  0,  0],
+[5, -5,-10,  0,  0,-10, -5,  5],
+[5, 10, 10,-20,-20, 10, 10,  5],
+[0,  0,  0,  0,  0,  0,  0,  0]],
+ 
+#  knight
+[[-50,-40,-30,-30,-30,-30,-40,-50],
+[-40,-20,  0,  0,  0,  0,-20,-40],
+[-30,  0, 10, 15, 15, 10,  0,-30],
+[-30,  5, 15, 20, 20, 15,  5,-30],
+[-30,  0, 15, 20, 20, 15,  0,-30],
+[-30,  5, 10, 15, 15, 10,  5,-30],
+[-40,-20,  0,  5,  5,  0,-20,-40],
+[-50,-40,-30,-30,-30,-30,-40,-50]],
+ 
+#  bishop
+[[-20,-10,-10,-10,-10,-10,-10,-20],
+[-10,  0,  0,  0,  0,  0,  0,-10],
+[-10,  0,  5, 10, 10,  5,  0,-10],
+[-10,  5,  5, 10, 10,  5,  5,-10],
+[-10,  0, 10, 10, 10, 10,  0,-10],
+[-10, 10, 10, 10, 10, 10, 10,-10],
+[-10,  5,  0,  0,  0,  0,  5,-10],
+[-20,-10,-10,-10,-10,-10,-10,-20]],
+ 
+#  rook
+[[0,  0,  0,  0,  0,  0,  0,  0],
+[5, 10, 10, 10, 10, 10, 10,  5],
+[-5,  0,  0,  0,  0,  0,  0, -5],
+[-5,  0,  0,  0,  0,  0,  0, -5],
+[-5,  0,  0,  0,  0,  0,  0, -5],
+[-5,  0,  0,  0,  0,  0,  0, -5],
+[-5,  0,  0,  0,  0,  0,  0, -5],
+[0,  0,  0,  5,  5,  0,  0,  0]],
+
+#  queen
+[[-20,-10,-10, -5, -5,-10,-10,-20],
+[-10,  0,  0,  0,  0,  0,  0,-10],
+[-10,  0,  5,  5,  5,  5,  0,-10],
+[-5,  0,  5,  5,  5,  5,  0, -5],
+[0,  0,  5,  5,  5,  5,  0, -5],
+[-10,  5,  5,  5,  5,  5,  0,-10],
+[-10,  0,  5,  0,  0,  0,  0,-10],
+[-20,-10,-10, -5, -5,-10,-10,-20]],
+
+#  king
+[[-30,-40,-40,-50,-50,-40,-40,-30],
+[-30,-40,-40,-50,-50,-40,-40,-30],
+[-30,-40,-40,-50,-50,-40,-40,-30],
+[-30,-40,-40,-50,-50,-40,-40,-30],
+[-20,-30,-30,-40,-40,-30,-30,-20],
+[-10,-20,-20,-20,-20,-20,-20,-10],
+[20, 20,  0,  0,  0,  0, 20, 20],
+[20, 30, 10,  0,  0, 10, 30, 20]]
+]
 
 # Define the Piece class as you have it above
 class Piece(pygame.sprite.Sprite):
@@ -141,20 +206,22 @@ def draw_piece_dragged():
     
 def evaluate_board(state):
     if state.is_checkmate():
-        if state.turn:
-            return -9999  # Black wins
-        else:
-            return 9999  # White wins
+        return -9999 if state.turn else 9999
     if state.is_stalemate():
-        return 0  # Draw
-    
+        return 0
+
     eval = 0
-    piece_values = {chess.PAWN: 1, chess.KNIGHT: 3, chess.BISHOP: 3, chess.ROOK: 5, chess.QUEEN: 9, chess.KING: 0}
-    
-    for (piece, value) in piece_values.items():
-        eval += len(state.pieces(piece, chess.WHITE)) * value
-        eval -= len(state.pieces(piece, chess.BLACK)) * value
-    
+    piece_values = {chess.PAWN: 100, chess.KNIGHT: 320, chess.BISHOP: 330, chess.ROOK: 500, chess.QUEEN: 900, chess.KING: 20000}
+    piece_position_values = piece_square_table
+
+    for square in chess.SQUARES:
+        piece = state.piece_at(square)
+        if piece:
+            value = piece_values[piece.piece_type]
+            array_index = [chess.PAWN, chess.KNIGHT, chess.BISHOP, chess.ROOK, chess.QUEEN, chess.KING].index(piece.piece_type)
+            position_value = piece_position_values[array_index][7 - chess.square_rank(square)][chess.square_file(square)] if piece.color == chess.WHITE else piece_position_values[array_index][chess.square_rank(square)][chess.square_file(square)]
+            eval += value + position_value if piece.color == chess.WHITE else - (value + position_value)
+
     return eval
 
 def gen_children(state):
@@ -202,6 +269,28 @@ def Min(state, depth, alpha, beta):
 
     return val, best_move
 
+def board_to_rep(board):
+    pieces = [chess.PAWN, chess.ROOK, chess.KNIGHT, chess.BISHOP, chess.QUEEN, chess.KING]
+    layers = []
+    for piece in pieces:
+        layers.append(create_rep_layer(board, piece))
+    board_rep = np.stack(layers)
+    return board_rep
+
+def create_rep_layer(board, piece_type):
+    layer = np.zeros((8, 8), dtype=int)
+    for square in chess.SQUARES:
+        piece = board.piece_at(square)
+        if piece is not None and piece.piece_type == piece_type:
+            sign = 1 if piece.color == chess.WHITE else -1
+            layer[chess.square_rank(square), chess.square_file(square)] = sign
+    return layer
+
+def generate_opp_ps_table():
+    return [np.flipud(matrix) for matrix in piece_square_table]
+opponent_piece_square_table = generate_opp_ps_table()
+
+
 # Initialize Pygame
 pygame.init()
 
@@ -224,36 +313,29 @@ square_size = screen_size[0] // 8
 board = chess.Board()
 
 # Game loop
-
 while running:
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
         elif event.type == pygame.MOUSEBUTTONDOWN:
             start_piece_drag()
-        # elif event.type == pygame.MOUSEMOTION and dragging:
-        #     update_piece_drag()
         elif event.type == pygame.MOUSEBUTTONUP and dragging:
             finish_piece_drag()
+            # Only calculate AI move if it's the AI's turn after the player has moved
+            if board.turn == chess.BLACK:
+                # Let's assume the AI plays as Black
+                _, ai_move = Min(board, 0, -float('inf'), float('inf'))  # Start Minimax with initial full depth
+                if ai_move:
+                    board.push(ai_move)
+                    print("AI moved:", ai_move)
 
-
+    # Draw board and pieces
     draw_board()
     draw_pieces_on_board()
-
     if dragging:
         draw_piece_dragged()
-    
+
+    # Refresh the display
     pygame.display.flip()
-
-    if board.turn == chess.BLACK:  # Let's assume the AI plays as Black
-        res = Min(board, 0, -9999, 9999)  # Depth is 3 for example
-        print(res)
-        ai_move = res[1]
-        if ai_move:
-            board.push(ai_move)
-            # print(evaluate_board(board))
-
     clock.tick(fps)
 
-
-pygame.quit()
