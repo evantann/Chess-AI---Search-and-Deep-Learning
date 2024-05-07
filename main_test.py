@@ -1,6 +1,8 @@
 import pygame
 import os
 import chess
+import regex as re
+import numpy as np
 
 running = True
 selected_piece = None
@@ -8,7 +10,6 @@ selected_position = None
 selected_legal_moves = set()
 dragging = False
 mouse_pos = None
-max_depth = 3
 fps = 60
 clock = pygame.time.Clock()
 
@@ -138,69 +139,176 @@ def draw_piece_dragged():
         centered_y = mouse_pos[1] - chess_pieces.cell_height // 2
         # print(screen, selected_piece, centered_x, centered_y)
         chess_pieces.draw(screen, selected_piece, (centered_x, centered_y))
+        
+def best_move(board, depth):
+    best_eval = -float('inf') if board.turn else float('inf')
+    best_move = None
+    for move in board.legal_moves:
+        board.push(move)
+        eval = minimax(board, depth - 1, -float('inf'), float('inf'), not board.turn)
+        board.pop()
+        if board.turn and eval > best_eval:  # White is maximizing player
+            best_eval = eval
+            best_move = move
+        elif not board.turn and eval < best_eval:  # Black is minimizing player
+            best_eval = eval
+            best_move = move
+    return best_move
+
+def minimax(board, depth, alpha, beta, maximizing_player):
+    if depth == 0 or board.is_game_over():
+        return evaluate_board(board)
     
-def evaluate_board(state):
-    if state.is_checkmate():
-        if state.turn:
-            return -9999  # Black wins
+    if maximizing_player:
+        max_eval = -float('inf')
+        for move in board.legal_moves:
+            board.push(move)
+            eval = minimax(board, depth - 1, alpha, beta, False)
+            board.pop()
+            max_eval = max(max_eval, eval)
+            alpha = max(alpha, eval)
+            if beta <= alpha:
+                break
+        return max_eval
+    else:
+        min_eval = float('inf')
+        for move in board.legal_moves:
+            board.push(move)
+            eval = minimax(board, depth - 1, alpha, beta, True)
+            board.pop()
+            min_eval = min(min_eval, eval)
+            beta = min(beta, eval)
+            if beta <= alpha:
+                break
+        return min_eval
+    
+def evaluate_board(board):
+    if board.is_checkmate():
+        if board.turn:
+            return -float('inf')  # Black wins
         else:
-            return 9999  # White wins
-    if state.is_stalemate():
+            return float('inf')  # White wins
+    if board.is_stalemate():
         return 0  # Draw
     
-    eval = 0
-    piece_values = {chess.PAWN: 1, chess.KNIGHT: 3, chess.BISHOP: 3, chess.ROOK: 5, chess.QUEEN: 9, chess.KING: 0}
+    str_rep = board_to_rep(board)
+    position_eval = str_rep * piece_square_table if board.turn else str_rep * opponent_piece_square_table
+    eval = sum_3d_array(position_eval)
+
+    piece_values = {chess.PAWN: 100, chess.KNIGHT: 320, chess.BISHOP: 330, chess.ROOK: 500, chess.QUEEN: 900, chess.KING: 0}
     
     for (piece, value) in piece_values.items():
-        eval += len(state.pieces(piece, chess.WHITE)) * value
-        eval -= len(state.pieces(piece, chess.BLACK)) * value
-    
+        eval += len(board.pieces(piece, chess.WHITE)) * value
+        eval -= len(board.pieces(piece, chess.BLACK)) * value
+
     return eval
 
-def gen_children(state):
-    res = []
-    for move in state.legal_moves:
-        state.push(move)
-        next_board = state.copy()
-        res.append(next_board)
-        state.pop()
-    return res
+# creates a binary representation of the board 
+# 3D matrix where each layer represents a piece type
+# 1 if the piece is white, -1 if the piece is black, 0 if the square is empty
+def board_to_rep(board):
+    pieces = ['p', 'r', 'n', 'b', 'q', 'k']
+    layers = []
+    for piece in pieces:
+        layers.append(create_rep_layer(board, piece))
+    board_rep = np.stack(layers)
+    return board_rep
 
-def Max(state, depth, alpha, beta):
-    if state.is_checkmate() or depth == max_depth:
-        return evaluate_board(state), None
-    val = -9999
-    best_move = None
-    children = gen_children(state)
-    for child in children:
-        # val = max(val, Min(child, depth+1, alpha, beta))
-        next, _ = Min(child, depth+1, alpha, beta)
-        if next >= val:
-            val = next
-            best_move = child.peek()
-        alpha = max(alpha, val)
-        if val > beta:
-            break
+# helper function of board_to_rep;
+def create_rep_layer(board, type):
+    s = str(board)
+    s = re.sub(f'[^ {type} {type.upper()} \n]', '.', s)
+    s = re.sub(f'{type}', '-1', s)
+    s = re.sub (f'{type.upper ()}', '1', s)
+    s = re.sub (f'\.', '0', s)
 
-    return val, best_move
+    board_mat = []
+    for row in s.split('\n'):
+        row = row.split(' ')
+        row = [int(x) for x in row]
+        board_mat.append(row)
+    return np.array(board_mat)
 
-def Min(state, depth, alpha, beta):
-    if state.is_checkmate() or depth == max_depth:
-        return evaluate_board(state), None
-    val = 9999
-    best_move = None
-    children = gen_children(state)
-    for child in children:
-        # val = min(val, Max(child, depth+1, alpha, beta))
-        next, _ = Max(child, depth+1, alpha, beta)
-        if next <= val:
-            val = next
-            best_move = child.peek()
-        beta = min(beta, val)
-        if val < alpha:
-            break
+# sums all positional values of the board
+def sum_3d_array(arr):
+    total = 0
+    for i in range(len(arr)):
+        for j in range(len(arr[i])):
+            for k in range(len(arr[i][j])):
+                total += arr[i][j][k]
+    return total
 
-    return val, best_move
+piece_square_table = [
+# pawn
+[[0,  0,  0,  0,  0,  0,  0,  0],
+[50, 50, 50, 50, 50, 50, 50, 50],
+[10, 10, 20, 30, 30, 20, 10, 10],
+[5,  5, 10, 25, 25, 10,  5,  5],
+[0,  0,  0, 20, 20,  0,  0,  0],
+[5, -5,-10,  0,  0,-10, -5,  5],
+[5, 10, 10,-20,-20, 10, 10,  5],
+[0,  0,  0,  0,  0,  0,  0,  0]],
+ 
+#  knight
+[[-50,-40,-30,-30,-30,-30,-40,-50],
+[-40,-20,  0,  0,  0,  0,-20,-40],
+[-30,  0, 10, 15, 15, 10,  0,-30],
+[-30,  5, 15, 20, 20, 15,  5,-30],
+[-30,  0, 15, 20, 20, 15,  0,-30],
+[-30,  5, 10, 15, 15, 10,  5,-30],
+[-40,-20,  0,  5,  5,  0,-20,-40],
+[-50,-40,-30,-30,-30,-30,-40,-50]],
+ 
+#  bishop
+[[-20,-10,-10,-10,-10,-10,-10,-20],
+[-10,  0,  0,  0,  0,  0,  0,-10],
+[-10,  0,  5, 10, 10,  5,  0,-10],
+[-10,  5,  5, 10, 10,  5,  5,-10],
+[-10,  0, 10, 10, 10, 10,  0,-10],
+[-10, 10, 10, 10, 10, 10, 10,-10],
+[-10,  5,  0,  0,  0,  0,  5,-10],
+[-20,-10,-10,-10,-10,-10,-10,-20]],
+ 
+#  rook
+[[0,  0,  0,  0,  0,  0,  0,  0],
+[5, 10, 10, 10, 10, 10, 10,  5],
+[-5,  0,  0,  0,  0,  0,  0, -5],
+[-5,  0,  0,  0,  0,  0,  0, -5],
+[-5,  0,  0,  0,  0,  0,  0, -5],
+[-5,  0,  0,  0,  0,  0,  0, -5],
+[-5,  0,  0,  0,  0,  0,  0, -5],
+[0,  0,  0,  5,  5,  0,  0,  0]],
+
+#  queen
+[[-20,-10,-10, -5, -5,-10,-10,-20],
+[-10,  0,  0,  0,  0,  0,  0,-10],
+[-10,  0,  5,  5,  5,  5,  0,-10],
+[-5,  0,  5,  5,  5,  5,  0, -5],
+[0,  0,  5,  5,  5,  5,  0, -5],
+[-10,  5,  5,  5,  5,  5,  0,-10],
+[-10,  0,  5,  0,  0,  0,  0,-10],
+[-20,-10,-10, -5, -5,-10,-10,-20]],
+
+#  king
+[[-30,-40,-40,-50,-50,-40,-40,-30],
+[-30,-40,-40,-50,-50,-40,-40,-30],
+[-30,-40,-40,-50,-50,-40,-40,-30],
+[-30,-40,-40,-50,-50,-40,-40,-30],
+[-20,-30,-30,-40,-40,-30,-30,-20],
+[-10,-20,-20,-20,-20,-20,-20,-10],
+[20, 20,  0,  0,  0,  0, 20, 20],
+[20, 30, 10,  0,  0, 10, 30, 20]]
+]
+
+# reverses the matrices in the piece-square table to create the opponent piece-square table
+def generate_opp_ps_table(matrices):
+    pst = []
+    for matrix in matrices:
+        matrix[::-1]
+        pst.append(matrix)
+    return pst
+
+opponent_piece_square_table = generate_opp_ps_table(piece_square_table)
 
 # Initialize Pygame
 pygame.init()
@@ -235,7 +343,10 @@ while running:
         #     update_piece_drag()
         elif event.type == pygame.MOUSEBUTTONUP and dragging:
             finish_piece_drag()
-
+            if board.turn == chess.BLACK:  # Let's assume the AI plays as Black
+                ai_move = best_move(board, 3)  # Depth is 3 for example
+                if ai_move:
+                    board.push(ai_move)
 
     draw_board()
     draw_pieces_on_board()
@@ -244,14 +355,6 @@ while running:
         draw_piece_dragged()
     
     pygame.display.flip()
-
-    if board.turn == chess.BLACK:  # Let's assume the AI plays as Black
-        res = Min(board, 0, -9999, 9999)  # Depth is 3 for example
-        print(res)
-        ai_move = res[1]
-        if ai_move:
-            board.push(ai_move)
-            # print(evaluate_board(board))
 
     clock.tick(fps)
 

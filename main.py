@@ -8,6 +8,7 @@ selected_position = None
 selected_legal_moves = set()
 dragging = False
 mouse_pos = None
+max_depth = 3
 fps = 60
 clock = pygame.time.Clock()
 
@@ -137,67 +138,69 @@ def draw_piece_dragged():
         centered_y = mouse_pos[1] - chess_pieces.cell_height // 2
         # print(screen, selected_piece, centered_x, centered_y)
         chess_pieces.draw(screen, selected_piece, (centered_x, centered_y))
-        
-def best_move(board, depth):
-    best_eval = -float('inf') if board.turn else float('inf')
-    best_move = None
-    for move in board.legal_moves:
-        board.push(move)
-        eval = minimax(board, depth - 1, -float('inf'), float('inf'), not board.turn)
-        board.pop()
-        if board.turn and eval > best_eval:  # White is maximizing player
-            best_eval = eval
-            best_move = move
-        elif not board.turn and eval < best_eval:  # Black is minimizing player
-            best_eval = eval
-            best_move = move
-    return best_move
-
-def minimax(board, depth, alpha, beta, maximizing_player):
-    if depth == 0 or board.is_game_over():
-        return evaluate_board(board)
     
-    if maximizing_player:
-        max_eval = -float('inf')
-        for move in board.legal_moves:
-            board.push(move)
-            eval = minimax(board, depth - 1, alpha, beta, False)
-            board.pop()
-            max_eval = max(max_eval, eval)
-            alpha = max(alpha, eval)
-            if beta <= alpha:
-                break
-        return max_eval
-    else:
-        min_eval = float('inf')
-        for move in board.legal_moves:
-            board.push(move)
-            eval = minimax(board, depth - 1, alpha, beta, True)
-            board.pop()
-            min_eval = min(min_eval, eval)
-            beta = min(beta, eval)
-            if beta <= alpha:
-                break
-        return min_eval
-    
-def evaluate_board(board):
-    if board.is_checkmate():
-        if board.turn:
+def evaluate_board(state):
+    if state.is_checkmate():
+        if state.turn:
             return -9999  # Black wins
         else:
             return 9999  # White wins
-    if board.is_stalemate():
+    if state.is_stalemate():
         return 0  # Draw
     
     eval = 0
     piece_values = {chess.PAWN: 1, chess.KNIGHT: 3, chess.BISHOP: 3, chess.ROOK: 5, chess.QUEEN: 9, chess.KING: 0}
     
     for (piece, value) in piece_values.items():
-        eval += len(board.pieces(piece, chess.WHITE)) * value
-        eval -= len(board.pieces(piece, chess.BLACK)) * value
+        eval += len(state.pieces(piece, chess.WHITE)) * value
+        eval -= len(state.pieces(piece, chess.BLACK)) * value
     
     return eval
 
+def gen_children(state):
+    res = []
+    for move in state.legal_moves:
+        state.push(move)
+        next_board = state.copy()
+        res.append(next_board)
+        state.pop()
+    return res
+
+def Max(state, depth, alpha, beta):
+    if state.is_checkmate() or depth == max_depth:
+        return evaluate_board(state), None
+    val = -9999
+    best_move = None
+    children = gen_children(state)
+    for child in children:
+        # val = max(val, Min(child, depth+1, alpha, beta))
+        next, _ = Min(child, depth+1, alpha, beta)
+        if next >= val:
+            val = next
+            best_move = child.peek()
+        alpha = max(alpha, val)
+        if val > beta:
+            break
+
+    return val, best_move
+
+def Min(state, depth, alpha, beta):
+    if state.is_checkmate() or depth == max_depth:
+        return evaluate_board(state), None
+    val = 9999
+    best_move = None
+    children = gen_children(state)
+    for child in children:
+        # val = min(val, Max(child, depth+1, alpha, beta))
+        next, _ = Max(child, depth+1, alpha, beta)
+        if next <= val:
+            val = next
+            best_move = child.peek()
+        beta = min(beta, val)
+        if val < alpha:
+            break
+
+    return val, best_move
 
 # Initialize Pygame
 pygame.init()
@@ -232,10 +235,7 @@ while running:
         #     update_piece_drag()
         elif event.type == pygame.MOUSEBUTTONUP and dragging:
             finish_piece_drag()
-            if board.turn == chess.BLACK:  # Let's assume the AI plays as Black
-                ai_move = best_move(board, 3)  # Depth is 3 for example
-                if ai_move:
-                    board.push(ai_move)
+
 
     draw_board()
     draw_pieces_on_board()
@@ -244,6 +244,14 @@ while running:
         draw_piece_dragged()
     
     pygame.display.flip()
+
+    if board.turn == chess.BLACK:  # Let's assume the AI plays as Black
+        res = Min(board, 0, -9999, 9999)  # Depth is 3 for example
+        print(res)
+        ai_move = res[1]
+        if ai_move:
+            board.push(ai_move)
+            # print(evaluate_board(board))
 
     clock.tick(fps)
 
