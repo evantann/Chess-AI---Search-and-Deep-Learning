@@ -231,45 +231,42 @@ def gen_children(state):
     for move in state.legal_moves:
         state.push(move)
         next_board = state.copy()
-        res.append(next_board)
+        res.append((next_board, move))  # Store the move alongside the board state
         state.pop()
     return res
 
 def Max(state, depth, alpha, beta):
     if state.is_checkmate() or depth == max_depth:
         return evaluate_board(state), None
-    val = -9999
+    val = -float('inf')
     best_move = None
     children = gen_children(state)
-    for child in children:
-        # val = max(val, Min(child, depth+1, alpha, beta))
-        next, _ = Min(child, depth+1, alpha, beta)
-        if next >= val:
-            val = next
-            best_move = child.peek()
+    for child, move in children:
+        evaluation, _ = Min(child, depth+1, alpha, beta)
+        if evaluation > val:
+            val = evaluation
+            best_move = move
         alpha = max(alpha, val)
-        if val > beta:
+        if alpha >= beta:
             break
-
     return val, best_move
 
 def Min(state, depth, alpha, beta):
     if state.is_checkmate() or depth == max_depth:
         return evaluate_board(state), None
-    val = 9999
+    val = float('inf')
     best_move = None
     children = gen_children(state)
-    for child in children:
-        # val = min(val, Max(child, depth+1, alpha, beta))
-        next, _ = Max(child, depth+1, alpha, beta)
-        if next <= val:
-            val = next
-            best_move = child.peek()
+    for child, move in children:
+        evaluation, _ = Max(child, depth+1, alpha, beta)
+        if evaluation < val:
+            val = evaluation
+            best_move = move
         beta = min(beta, val)
-        if val < alpha:
+        if beta <= alpha:
             break
-
     return val, best_move
+
 
 def board_to_rep(board):
     pieces = [chess.PAWN, chess.ROOK, chess.KNIGHT, chess.BISHOP, chess.QUEEN, chess.KING]
@@ -316,9 +313,12 @@ board = chess.Board()
 
 def ai_move_logic():
     _, ai_move = Min(board, 0, -float('inf'), float('inf'))  # Start Minimax with initial full depth
-    if ai_move:
+    if ai_move in board.legal_moves:
         board.push(ai_move)
         print("AI moved:", ai_move)
+    else:
+        print("Illegal move attempted by AI:", ai_move)
+
 
 # Game loop
 while running:
