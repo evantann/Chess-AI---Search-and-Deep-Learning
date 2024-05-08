@@ -213,7 +213,7 @@ def evaluate_board(state):
         return 0
 
     eval = 0
-    piece_values = {chess.PAWN: 100, chess.KNIGHT: 320, chess.BISHOP: 330, chess.ROOK: 500, chess.QUEEN: 900, chess.KING: 20000}
+    piece_values = {chess.PAWN: 100, chess.BISHOP: 320, chess.KNIGHT: 330, chess.ROOK: 500, chess.QUEEN: 900, chess.KING: 20000}
     piece_position_values = piece_square_table
 
     for square in chess.SQUARES:
