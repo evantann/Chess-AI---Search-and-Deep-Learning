@@ -3,6 +3,7 @@ import os
 import chess
 import numpy as np
 import re
+import threading
 
 
 running = True
@@ -11,7 +12,7 @@ selected_position = None
 selected_legal_moves = set()
 dragging = False
 mouse_pos = None
-max_depth = 3
+max_depth = 4
 fps = 60
 clock = pygame.time.Clock()
 
@@ -183,6 +184,7 @@ def draw_board():
             # to_sq = move.to_square
             col, row = square_to_coords(move)
             pygame.draw.rect(screen, (255, 255, 0), (col * square_size, row * square_size, square_size, square_size))
+            
 def draw_pieces_on_board():
     for row in range(8):
         for col in range(8):
@@ -312,6 +314,12 @@ square_size = screen_size[0] // 8
 
 board = chess.Board()
 
+def ai_move_logic():
+    _, ai_move = Min(board, 0, -float('inf'), float('inf'))  # Start Minimax with initial full depth
+    if ai_move:
+        board.push(ai_move)
+        print("AI moved:", ai_move)
+
 # Game loop
 while running:
     for event in pygame.event.get():
@@ -323,11 +331,8 @@ while running:
             finish_piece_drag()
             # Only calculate AI move if it's the AI's turn after the player has moved
             if board.turn == chess.BLACK:
-                # Let's assume the AI plays as Black
-                _, ai_move = Min(board, 0, -float('inf'), float('inf'))  # Start Minimax with initial full depth
-                if ai_move:
-                    board.push(ai_move)
-                    print("AI moved:", ai_move)
+                # Start AI calculation in a separate thread to avoid freezing the GUI
+                threading.Thread(target=ai_move_logic).start()
 
     # Draw board and pieces
     draw_board()
@@ -338,4 +343,5 @@ while running:
     # Refresh the display
     pygame.display.flip()
     clock.tick(fps)
+
 
