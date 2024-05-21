@@ -1,3 +1,4 @@
+import chess.engine
 import pygame
 import os
 import chess
@@ -199,7 +200,7 @@ def finish_piece_drag():
 def draw_board():
     for row in range(8):
         for col in range(8):
-            color = LIGHT_GREEN if (row + col) % 2 == 0 else DARK_GREEN
+            color = LIGHT_BROWN if (row + col) % 2 == 0 else DARK_BROWN
             pygame.draw.rect(screen, color, (col * square_size, row * square_size, square_size, square_size))
     if selected_legal_moves:
         for move in selected_legal_moves:
@@ -335,6 +336,19 @@ def get_polyglot_move(board):
                 continue
     return None
 
+STOCKFISH_PATH = "/opt/homebrew/bin/stockfish"
+
+def get_stockfish_evaluation(board, time_limit = 1.0):
+    with chess.engine.SimpleEngine.popen_uci(STOCKFISH_PATH) as engine:
+        result = engine.analyse(board, chess.engine.Limit(time = time_limit))
+        score = result["score"].relative
+
+        if score.is_mate():
+            evaluation = "Mate in " + str(score.mate())
+        else:
+            evaluation = str(score)
+        return evaluation
+    
 
 # Initialize Pygame
 pygame.init()
@@ -349,8 +363,8 @@ filename = os.path.join('res', 'pieces.png')
 chess_pieces = Piece(filename, 6, 2)
 
 # Define chess.com-like green colors
-DARK_GREEN = (118, 150, 86)  # A muted, dark green
-LIGHT_GREEN = (238, 238, 210)  # A soft, light green
+LIGHT_BROWN = (240, 217, 181)  # Light wooden color
+DARK_BROWN = (181, 136, 99)    # Dark wooden color
 
 # Size of squares
 square_size = screen_size[0] // 8
@@ -369,6 +383,9 @@ def ai_move_logic():
             print("AI moved:", ai_move)
         else:
             print("Illegal move attempted by AI:", ai_move)
+        
+        evaluation = get_stockfish_evaluation(board)
+        print("Stockfish evaluation:", evaluation)
 
 # Game loop
 while running:
