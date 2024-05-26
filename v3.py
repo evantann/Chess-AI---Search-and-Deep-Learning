@@ -2,10 +2,11 @@ import pygame
 import os
 import chess
 import numpy as np
-import re
 import threading
+import chess.polyglot
+import random
 
-
+# ---------- GLOBAL VARIABLES ----------
 running = True
 selected_piece = None
 selected_position = None
@@ -16,6 +17,14 @@ max_depth = 4
 fps = 60
 clock = pygame.time.Clock()
 
+# Directory containing the Polyglot books
+polyglot_directory = 'polyglot-collection'
+polyglot_filenames = [
+    'varied.bin', 'Performance.bin', 'KomodoVariety.bin', 'komodo.bin',
+    'gm2600.bin', 'gm2001.bin', 'final-book.bin', 'Elo2400.bin',
+    'DCbook_large.bin', 'codekiddy.bin', 'book2.bin', 'Book.bin'
+]
+polyglot_books = [os.path.join(polyglot_directory, filename) for filename in polyglot_filenames]
 
 piece_square_table = [
 # pawn
@@ -79,21 +88,17 @@ piece_square_table = [
 [20, 30, 10,  0,  0, 10, 30, 20]]
 ]
 
-# Define the Piece class as you have it above
+# ---------- PIECE CLASS ----------
 class Piece(pygame.sprite.Sprite):
     def __init__(self, filename, cols, rows):
-        pygame.sprite.Sprite.__init__(self)
+        super().__init__()
         self.pieces = {}
         index = 0
         for color in (chess.WHITE, chess.BLACK):
             for piece_type in (chess.KING, chess.QUEEN, chess.BISHOP, chess.KNIGHT, chess.ROOK, chess.PAWN):
                 piece = chess.Piece(piece_type, color)
-                # Map each piece to its corresponding cell index based on its type and color
-                # print(piece, index)
                 self.pieces[piece] = index
-                index = (index + 1)
-        # print(self.pieces)
-
+                index += 1
         self.spritesheet = pygame.image.load(filename).convert_alpha()
         self.cols = cols
         self.rows = rows
@@ -108,36 +113,27 @@ class Piece(pygame.sprite.Sprite):
             piece_index = self.pieces[piece]
             surface.blit(self.spritesheet, coords, self.cells[piece_index])
 
-# Maps graphical coordinates (ie. (200, 300)) to coordinate pair (ie. (1, 2))
+# ---------- HELPER FUNCTIONS ----------
 def graphical_coords_to_coords(graphical_coords):
-    graphical_x = graphical_coords[0]
-    graphical_y = graphical_coords[1]
-    x = (int)(graphical_x / 100)
-    y = (int)(graphical_y / 100)
-    return (x, y)
+    graphical_x, graphical_y = graphical_coords
+    return (graphical_x // 100, graphical_y // 100)
 
-# Maps array coords (x, y) to chess square
 def coords_to_square(x, y):
     return chess.square(x, 7 - y)
 
 def square_to_coords(square):
     return (chess.square_file(square), 7 - chess.square_rank(square))
 
-# Gets all legal moves for selected piece
 def update_selected_legal_moves():
     selected_square = coords_to_square(selected_position[0], selected_position[1])
     for move in board.legal_moves:
         if move.from_square == selected_square:
-            # selected_legal_moves.add(move)
             selected_legal_moves.add(move.to_square)
 
-# ---------- LOGIC FUNCTIONS ------------
-
+# ---------- LOGIC FUNCTIONS ----------
 def start_piece_drag():
     global selected_piece, selected_position, dragging
-
     mouse_pos = pygame.mouse.get_pos()
-    # print(mouse_pos)
     col, row = graphical_coords_to_coords(mouse_pos)
     square = coords_to_square(col, row)
     piece = board.piece_at(square)
@@ -146,18 +142,11 @@ def start_piece_drag():
         selected_position = (col, row)
         dragging = True
         update_selected_legal_moves()
-        # print(selected_legal_moves)
-
-# def update_piece_drag():
-#     global mouse_pos
-#     mouse_pos = pygame.mouse.get_pos()
 
 def finish_piece_drag():
     global selected_piece, selected_position, dragging, selected_legal_moves
     mouse_pos = pygame.mouse.get_pos()
     col, row = graphical_coords_to_coords(mouse_pos)
-
-    # Update board if move is valid.
     square = coords_to_square(col, row)
     if square in selected_legal_moves:
         from_square = coords_to_square(selected_position[0], selected_position[1])
@@ -165,15 +154,25 @@ def finish_piece_drag():
         print(chess.SQUARE_NAMES[from_square], chess.SQUARE_NAMES[to_square])
         move = chess.Move(from_square, to_square)
         board.push(move)
-
     selected_piece = None
     selected_position = None
     dragging = False
     selected_legal_moves = set()
 
+def ai_move_logic():
+    polyglot_move = get_polyglot_move(board)
+    if polyglot_move and polyglot_move in board.legal_moves:
+        board.push(polyglot_move)
+        print("Polyglot moved:", polyglot_move)
+    else:
+        _, ai_move = Min(board, 0, -float('inf'), float('inf'))
+        if ai_move in board.legal_moves:
+            board.push(ai_move)
+            print("AI moved:", ai_move)
+        else:
+            print("Illegal move attempted by AI:", ai_move)
 
 # ---------- DRAWING FUNCTIONS ----------
-
 def draw_board():
     for row in range(8):
         for col in range(8):
@@ -181,10 +180,9 @@ def draw_board():
             pygame.draw.rect(screen, color, (col * square_size, row * square_size, square_size, square_size))
     if selected_legal_moves:
         for move in selected_legal_moves:
-            # to_sq = move.to_square
             col, row = square_to_coords(move)
             pygame.draw.rect(screen, (255, 255, 0), (col * square_size, row * square_size, square_size, square_size))
-            
+
 def draw_pieces_on_board():
     for row in range(8):
         for col in range(8):
@@ -193,19 +191,17 @@ def draw_pieces_on_board():
             if piece:
                 centered_x = col * square_size + (square_size - chess_pieces.cell_width) // 2
                 centered_y = row * square_size + (square_size - chess_pieces.cell_height) // 2
-
                 if not (dragging and (col, row) == selected_position):
                     chess_pieces.draw(screen, piece, (centered_x, centered_y))
 
 def draw_piece_dragged():
     mouse_pos = pygame.mouse.get_pos()
-    # print(mouse_pos)
     if mouse_pos:
         centered_x = mouse_pos[0] - chess_pieces.cell_width // 2
         centered_y = mouse_pos[1] - chess_pieces.cell_height // 2
-        # print(screen, selected_piece, centered_x, centered_y)
         chess_pieces.draw(screen, selected_piece, (centered_x, centered_y))
-    
+
+# ---------- AI FUNCTIONS ----------
 def evaluate_board(state):
     if state.is_checkmate():
         return -9999 if state.turn else 9999
@@ -237,7 +233,7 @@ def gen_children(state):
     for move in state.legal_moves:
         state.push(move)
         next_board = state.copy()
-        res.append((next_board, move))  # Store the move alongside the board state
+        res.append((next_board, move))
         state.pop()
     return res
 
@@ -273,81 +269,85 @@ def Min(state, depth, alpha, beta):
             break
     return val, best_move
 
-
+# ---------- REPRESENTATION FUNCTIONS ----------
 def board_to_rep(board):
     pieces = [chess.PAWN, chess.ROOK, chess.KNIGHT, chess.BISHOP, chess.QUEEN, chess.KING]
-    layers = []
-    for piece in pieces:
-        layers.append(create_rep_layer(board, piece))
-    board_rep = np.stack(layers)
-    return board_rep
+    layers = [create_rep_layer(board, piece) for piece in pieces]
+    return np.stack(layers)
 
 def create_rep_layer(board, piece_type):
     layer = np.zeros((8, 8), dtype=int)
     for square in chess.SQUARES:
         piece = board.piece_at(square)
-        if piece is not None and piece.piece_type == piece_type:
+        if piece and piece.piece_type == piece_type:
             sign = 1 if piece.color == chess.WHITE else -1
             layer[chess.square_rank(square), chess.square_file(square)] = sign
     return layer
 
 def generate_opp_ps_table():
     return [np.flipud(matrix) for matrix in piece_square_table]
+
 opponent_piece_square_table = generate_opp_ps_table()
 
+def get_polyglot_move(board):
+    shuffled_books = polyglot_books[:]
+    random.shuffle(shuffled_books)
+    for book_path in shuffled_books:
+        if os.path.exists(book_path):
+            try:
+                with chess.polyglot.open_reader(book_path) as reader:
+                    try:
+                        main_entry = reader.find(board)
+                        return main_entry.move
+                    except IndexError:
+                        continue
+            except IOError as e:
+                print(f"Skipping invalid book {book_path}: {e}")
+                continue
+    return None
 
-# Initialize Pygame
-pygame.init()
+# ---------- MAIN PROGRAM ----------
+if __name__ == "__main__":
+    # Initialize Pygame
+    pygame.init()
 
-# Set up the display
-screen_size = (800, 800)
-screen = pygame.display.set_mode(screen_size)
-pygame.display.set_caption("Chess Board")
+    # Set up the display
+    screen_size = (800, 800)
+    screen = pygame.display.set_mode(screen_size)
+    pygame.display.set_caption("Chess Board")
 
-# Load the chess pieces
-filename = os.path.join('res', 'pieces.png')
-chess_pieces = Piece(filename, 6, 2)
+    # Load the chess pieces
+    filename = os.path.join('res', 'pieces.png')
+    chess_pieces = Piece(filename, 6, 2)
 
-# Define chess.com-like green colors
-DARK_GREEN = (118, 150, 86)  # A muted, dark green
-LIGHT_GREEN = (238, 238, 210)  # A soft, light green
+    # Define chess.com-like green colors
+    DARK_GREEN = (118, 150, 86)  # A muted, dark green
+    LIGHT_GREEN = (238, 238, 210)  # A soft, light green
 
-# Size of squares
-square_size = screen_size[0] // 8
+    # Size of squares
+    square_size = screen_size[0] // 8
 
-board = chess.Board()
+    # Initialize the chess board
+    board = chess.Board()
 
-def ai_move_logic():
-    _, ai_move = Min(board, 0, -float('inf'), float('inf'))  # Start Minimax with initial full depth
-    if ai_move in board.legal_moves:
-        board.push(ai_move)
-        print("AI moved:", ai_move)
-    else:
-        print("Illegal move attempted by AI:", ai_move)
+    # Game loop
+    while running:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                start_piece_drag()
+            elif event.type == pygame.MOUSEBUTTONUP and dragging:
+                finish_piece_drag()
+                if board.turn == chess.BLACK:
+                    threading.Thread(target=ai_move_logic).start()
 
+        # Draw board and pieces
+        draw_board()
+        draw_pieces_on_board()
+        if dragging:
+            draw_piece_dragged()
 
-# Game loop
-while running:
-    for event in pygame.event.get():
-        if event.type == pygame.QUIT:
-            running = False
-        elif event.type == pygame.MOUSEBUTTONDOWN:
-            start_piece_drag()
-        elif event.type == pygame.MOUSEBUTTONUP and dragging:
-            finish_piece_drag()
-            # Only calculate AI move if it's the AI's turn after the player has moved
-            if board.turn == chess.BLACK:
-                # Start AI calculation in a separate thread to avoid freezing the GUI
-                threading.Thread(target=ai_move_logic).start()
-
-    # Draw board and pieces
-    draw_board()
-    draw_pieces_on_board()
-    if dragging:
-        draw_piece_dragged()
-
-    # Refresh the display
-    pygame.display.flip()
-    clock.tick(fps)
-
-
+        # Refresh the display
+        pygame.display.flip()
+        clock.tick(fps)
