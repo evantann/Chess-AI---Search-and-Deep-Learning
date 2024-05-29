@@ -22,7 +22,7 @@ ai_wins = 0
 ai_losses = 0
 draws = 0
 games_played = 0
-max_games = 1  # Set the number of games to play
+max_games = 10  # Set the number of games to play
 
 # Elo calculation parameters
 initial_elo = 1200
