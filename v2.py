@@ -182,7 +182,7 @@ def move_piece():
         move = chess.Move(coords_to_square(*selected_position), square)
         board.push(move)
         print(f"White {move.uci()}")
-        if board.piece_at(square).piece_type == chess.PAWN and (chess.square_rank(square) == 3 or chess.square_rank(square) == 7):  # Check for pawn promotion
+        if board.piece_at(square).piece_type == chess.PAWN and (chess.square_rank(square) == 0 or chess.square_rank(square) == 7):  # Check for pawn promotion
             board.remove_piece_at(square)
             x, y = graphical_coords_to_coords(pygame.mouse.get_pos())
             promotion_piece = prompt_promotion_piece(chess.WHITE, x * square_size, y * square_size)
