@@ -182,10 +182,29 @@ def move_piece():
         move = chess.Move(coords_to_square(*selected_position), square)
         board.push(move)
         print(f"White {move.uci()}")
+        if board.piece_at(square).piece_type == chess.PAWN and (chess.square_rank(square) == 0 or chess.square_rank(square) == 7):  # Check for pawn promotion
+            promotion_piece = prompt_promotion_piece()
+            board.remove_piece_at(square)
+            board.set_piece_at(square, promotion_piece)
     selected_piece = None
     selected_position = None
     dragging = False
     selected_legal_moves = set()
+
+def prompt_promotion_piece():
+    while True:
+        promotion_piece_str = input("Promote to (Q, R, B, N): ").upper()
+        if promotion_piece_str == "Q":
+            return chess.Piece(chess.QUEEN, chess.WHITE)
+        elif promotion_piece_str == "R":
+            return chess.Piece(chess.ROOK, chess.WHITE)
+        elif promotion_piece_str == "B":
+            return chess.Piece(chess.BISHOP, chess.WHITE)
+        elif promotion_piece_str == "N":
+            return chess.Piece(chess.KNIGHT, chess.WHITE)
+        else:
+            print("Invalid choice. Please select one of: Q, R, B, N")
+
 
 
 # Drawing functions
