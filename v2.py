@@ -182,10 +182,47 @@ def move_piece():
         move = chess.Move(coords_to_square(*selected_position), square)
         board.push(move)
         print(f"White {move.uci()}")
+        if board.piece_at(square).piece_type == chess.PAWN and (chess.square_rank(square) == 0 or chess.square_rank(square) == 7):  # Check for pawn promotion
+            board.remove_piece_at(square)
+            x, y = graphical_coords_to_coords(pygame.mouse.get_pos())
+            promotion_piece = prompt_promotion_piece(chess.WHITE, x * square_size, y * square_size)
+            board.set_piece_at(square, promotion_piece)
     selected_piece = None
     selected_position = None
     dragging = False
     selected_legal_moves = set()
+
+
+def draw_promotion_options(color, x, y):
+    
+    bg_width = 4 * chess_pieces.cell_width
+    bg_height = chess_pieces.cell_height
+
+    pygame.draw.rect(screen, (255, 255, 255), (x, y, bg_width, bg_height))
+
+    promotion_options = [chess.QUEEN, chess.ROOK, chess.BISHOP, chess.KNIGHT]  
+    option_images = [chess_pieces.spritesheet.subsurface(chess_pieces.cells[chess_pieces.pieces[chess.Piece(pt, color)]]) for pt in promotion_options]
+    for i, image in enumerate(option_images):
+        screen.blit(image, (x + i * chess_pieces.cell_width, y))
+
+def prompt_promotion_piece(color, x, y):
+    promotion_options = [chess.QUEEN, chess.ROOK, chess.BISHOP, chess.KNIGHT]
+    option_rects = [pygame.Rect(x + i * chess_pieces.cell_width, y, chess_pieces.cell_width, chess_pieces.cell_height) for i in range(4)]
+    while True:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                exit()
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                mouse_pos = pygame.mouse.get_pos()
+                for i, rect in enumerate(option_rects):
+                    if rect.collidepoint(mouse_pos):
+                        return chess.Piece(promotion_options[i], color)
+    
+        draw_board()
+        draw_pieces_on_board()
+        draw_promotion_options(color, x, y)
+        pygame.display.flip()
 
 
 # Drawing functions
