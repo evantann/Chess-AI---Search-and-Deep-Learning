@@ -1,25 +1,16 @@
 import pygame
 import os
 import chess
-from stockfish import Stockfish
 import random
-from aiv2 import minimax, evaluate_board, piece_square_table, MAX, MIN
-
-# Initialize Stockfish engine using the pip-installed stockfish package
-stockfish = Stockfish()
-stockfish.set_skill_level(3)  # Set the skill level (0 to 20)
+from aiv1 import Min as aiv1_Min, Max as aiv1_Max, evaluate_board as aiv1_evaluate_board, gen_children as aiv1_gen_children
+from aiv2 import minimax as aiv2_minimax, evaluate_board as aiv2_evaluate_board, piece_square_table as aiv2_piece_square_table, MAX as aiv2_MAX, MIN as aiv2_MIN
 
 # Performance metrics
-ai_wins = 0
-ai_losses = 0
+ai1_wins = 0
+ai2_wins = 0
 draws = 0
 games_played = 0
 max_games = 10  # Set the number of games to play
-
-# Elo calculation parameters
-initial_elo = 1200
-opponent_elo = 1200  # Assuming Stockfish has a very high rating
-K = 32  # K-factor in Elo rating system
 
 # Define the Piece class
 class Piece(pygame.sprite.Sprite):
@@ -58,9 +49,9 @@ def draw_pieces_on_board():
                 chess_pieces.draw(screen, piece, (col * square_size + (square_size - chess_pieces.cell_width) // 2, row * square_size + (square_size - chess_pieces.cell_height) // 2))
 
 def show_menu():
-    global running, ai_color, board
+    global running, ai1_color, board
     font = pygame.font.Font(None, 36)
-    menu_text = ["Choose who goes first", "1. AI (White)", "2. Stockfish (White)"]
+    menu_text = ["Choose who goes first", "1. AI 1 (White)", "2. AI 2 (White)"]
     while True:
         screen.fill((0, 0, 0))
         for i, line in enumerate(menu_text):
@@ -74,10 +65,10 @@ def show_menu():
                 return
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_1:
-                    ai_color = chess.WHITE
+                    ai1_color = chess.WHITE
                     return
                 elif event.key == pygame.K_2:
-                    ai_color = chess.BLACK
+                    ai1_color = chess.BLACK
                     return
 
 # Initialize Pygame
@@ -104,7 +95,7 @@ fps = 60
 clock = pygame.time.Clock()
 
 # Show the menu to choose who goes first
-ai_color = None
+ai1_color = None
 show_menu()
 
 # Game loop
@@ -118,56 +109,53 @@ while running and games_played < max_games:
 
     pygame.display.flip()
 
-    if board.turn == ai_color:  # AI's turn
-        legal_moves = list(board.legal_moves)
-        _, ai_move = minimax(max_depth, ai_color == chess.WHITE, MIN, MAX, board)
+    if board.turn == ai1_color:  # AI 1's turn
+        if ai1_color == chess.WHITE:
+            res = aiv1_Max(board, 0, -9999, 9999, max_depth)  # Depth is adjustable
+        else:
+            res = aiv1_Min(board, 0, -9999, 9999, max_depth)  # Depth is adjustable
+        ai_move = res[1]
         if ai_move:
             board.push(ai_move)
-            print(f"AI {ai_move.uci()}")
+            print(f"AI 1 {ai_move.uci()}")
+        else:
+            print("No valid AI 1 move found!")
+    else:  # AI 2's turn
+        legal_moves = list(board.legal_moves)
+        _, ai_move = aiv2_minimax(max_depth, board.turn == chess.WHITE, aiv2_MIN, aiv2_MAX, board)
+        if ai_move:
+            board.push(ai_move)
+            print(f"AI 2 {ai_move.uci()}")
         else:
             ai_move = random.choice(legal_moves)
             board.push(ai_move)
             print(f"AI (random) {ai_move.uci()}")
 
-    elif board.turn != ai_color:  # Stockfish's turn
-        stockfish.set_fen_position(board.fen())
-        result = stockfish.get_best_move()
-        move = chess.Move.from_uci(result)
-        board.push(move)
-        print(f"Stockfish {move.uci()}")
-
     if board.is_game_over():
         result = board.result()
         games_played += 1
         if result == '1-0':
-            if ai_color == chess.WHITE:
-                print("AI (White) won")
-                ai_wins += 1
-                actual_score = 1
+            if ai1_color == chess.WHITE:
+                print("AI 1 (White) won")
+                ai1_wins += 1
             else:
-                print("Stockfish (White) won")
-                ai_losses += 1
-                actual_score = 0
+                print("AI 2 (White) won")
+                ai2_wins += 1
         elif result == '0-1':
-            if ai_color == chess.BLACK:
-                print("AI (Black) won")
-                ai_wins += 1
-                actual_score = 1
+            if ai1_color == chess.BLACK:
+                print("AI 1 (Black) won")
+                ai1_wins += 1
             else:
-                print("Stockfish (Black) won")
-                ai_losses += 1
-                actual_score = 0
+                print("AI 2 (Black) won")
+                ai2_wins += 1
         else:
             print("The game was a draw")
             draws += 1
-            actual_score = 0.5
         
-        expected_score = 1 / (1 + 10 ** ((opponent_elo - initial_elo) / 400))
-        initial_elo += K * (actual_score - expected_score)
-        initial_elo = int(initial_elo)  # Convert Elo to integer
-        print(f"Current Elo after game {games_played}: {initial_elo}")
-
         board.reset()
+
+        if games_played >= max_games:
+            running = False
 
     clock.tick(fps)
 
@@ -175,7 +163,6 @@ pygame.quit()
 
 # Print performance metrics
 print(f"Games played: {games_played}")
-print(f"AI Wins: {ai_wins}")
-print(f"AI Losses: {ai_losses}")
+print(f"AI 1 Wins: {ai1_wins}")
+print(f"AI 2 Wins: {ai2_wins}")
 print(f"Draws: {draws}")
-print(f"Estimated Elo rating: {initial_elo}")

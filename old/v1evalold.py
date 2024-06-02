@@ -1,6 +1,11 @@
 import pygame
 import os
 import chess
+from stockfish import Stockfish
+
+# Initialize Stockfish engine using the pip-installed stockfish package
+stockfish = Stockfish()
+stockfish.set_skill_level(3)  # Set the skill level (0 to 20)
 
 running = True
 selected_piece = None
@@ -12,6 +17,18 @@ max_depth = 3
 fps = 60
 clock = pygame.time.Clock()
 
+# Performance metrics
+ai_wins = 0
+ai_losses = 0
+draws = 0
+games_played = 0
+max_games = 10  # Set the number of games to play
+
+# Elo calculation parameters
+initial_elo = 1200
+opponent_elo = 1200  # Assuming Stockfish has a very high rating
+K = 32  # K-factor in Elo rating system
+
 # Define the Piece class
 class Piece(pygame.sprite.Sprite):
     def __init__(self, filename, cols, rows):
@@ -22,7 +39,7 @@ class Piece(pygame.sprite.Sprite):
             for piece_type in (chess.KING, chess.QUEEN, chess.BISHOP, chess.KNIGHT, chess.ROOK, chess.PAWN):
                 piece = chess.Piece(piece_type, color)
                 self.pieces[piece] = index
-                index += 1
+                index = (index + 1)
 
         self.spritesheet = pygame.image.load(filename).convert_alpha()
         self.cols = cols
@@ -38,22 +55,19 @@ class Piece(pygame.sprite.Sprite):
             piece_index = self.pieces[piece]
             surface.blit(self.spritesheet, coords, self.cells[piece_index])
 
-# Maps graphical coordinates (ie. (200, 300)) to coordinate pair (ie. (1, 2))
 def graphical_coords_to_coords(graphical_coords):
     graphical_x = graphical_coords[0]
     graphical_y = graphical_coords[1]
     x = int(graphical_x / 100)
     y = int(graphical_y / 100)
-    return x, y
+    return (x, y)
 
-# Maps array coords (x, y) to chess square
 def coords_to_square(x, y):
     return chess.square(x, 7 - y)
 
 def square_to_coords(square):
-    return chess.square_file(square), 7 - chess.square_rank(square)
+    return (chess.square_file(square), 7 - chess.square_rank(square))
 
-# Gets all legal moves for selected piece
 def update_selected_legal_moves():
     selected_square = coords_to_square(selected_position[0], selected_position[1])
     for move in board.legal_moves:
@@ -74,10 +88,9 @@ def start_piece_drag():
         update_selected_legal_moves()
 
 def finish_piece_drag():
-    global selected_piece, selected_position, dragging, selected_legal_moves
+    global selected_piece, selected_position, dragging, selected_legal_moves, games_played, ai_wins, ai_losses, draws, initial_elo
     mouse_pos = pygame.mouse.get_pos()
     col, row = graphical_coords_to_coords(mouse_pos)
-
     square = coords_to_square(col, row)
     if square in selected_legal_moves:
         from_square = coords_to_square(selected_position[0], selected_position[1])
@@ -89,6 +102,33 @@ def finish_piece_drag():
     selected_position = None
     dragging = False
     selected_legal_moves = set()
+
+    if board.is_game_over():
+        result = board.result()
+        games_played += 1
+        if result == '1-0':
+            print("Stockfish (White) won")
+            ai_losses += 1
+            actual_score = 0
+        elif result == '0-1':
+            print("AI (Black) won")
+            ai_wins += 1
+            actual_score = 1
+        else:
+            print("The game was a draw")
+            draws += 1
+            actual_score = 0.5
+        
+        expected_score = 1 / (1 + 10 ** ((opponent_elo - initial_elo) / 400))
+        initial_elo += K * (actual_score - expected_score)
+        initial_elo = int(initial_elo)  # Convert Elo to integer
+        print(f"Current Elo after game {games_played}: {initial_elo}")
+
+        board.reset()
+
+        if games_played >= max_games:
+            global running
+            running = False
 
 def draw_board():
     for row in range(8):
@@ -130,7 +170,7 @@ def evaluate_board(state):
     eval = 0
     piece_values = {chess.PAWN: 1, chess.KNIGHT: 3, chess.BISHOP: 3, chess.ROOK: 5, chess.QUEEN: 9, chess.KING: 0}
 
-    for piece, value in piece_values.items():
+    for (piece, value) in piece_values.items():
         eval += len(state.pieces(piece, chess.WHITE)) * value
         eval -= len(state.pieces(piece, chess.BLACK)) * value
 
@@ -152,14 +192,15 @@ def Max(state, depth, alpha, beta):
     best_move = None
     children = gen_children(state)
     for child in children:
+        print(f"Evaluating move: {child.peek()} at depth {depth + 1}")
         next, _ = Min(child, depth+1, alpha, beta)
         if next >= val:
             val = next
             best_move = child.peek()
         alpha = max(alpha, val)
         if val > beta:
+            print(f"Pruning at move {child.peek()} with alpha={alpha}, beta={beta}")
             break
-
     return val, best_move
 
 def Min(state, depth, alpha, beta):
@@ -169,38 +210,16 @@ def Min(state, depth, alpha, beta):
     best_move = None
     children = gen_children(state)
     for child in children:
+        print(f"Evaluating move: {child.peek()} at depth {depth + 1}")
         next, _ = Max(child, depth+1, alpha, beta)
         if next <= val:
             val = next
             best_move = child.peek()
         beta = min(beta, val)
         if val < alpha:
+            print(f"Pruning at move {child.peek()} with alpha={alpha}, beta={beta}")
             break
-
     return val, best_move
-
-def show_menu():
-    global running, ai_color, board
-    font = pygame.font.Font(None, 36)
-    menu_text = ["Choose who goes first", "1. AI (White)", "2. AI (Black)"]
-    while True:
-        screen.fill((0, 0, 0))
-        for i, line in enumerate(menu_text):
-            text = font.render(line, True, (255, 255, 255))
-            screen.blit(text, (screen_size[0] // 2 - text.get_width() // 2, screen_size[1] // 2 - text.get_height() // 2 + i * 40))
-        pygame.display.flip()
-
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                running = False
-                return
-            elif event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_1:
-                    ai_color = chess.WHITE
-                    return
-                elif event.key == pygame.K_2:
-                    ai_color = chess.BLACK
-                    return
 
 # Initialize Pygame
 pygame.init()
@@ -223,12 +242,8 @@ square_size = screen_size[0] // 8
 
 board = chess.Board()
 
-# Show the menu to choose who goes first
-ai_color = None
-show_menu()
-
 # Game loop
-while running:
+while running and games_played < max_games:
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
@@ -245,17 +260,55 @@ while running:
 
     pygame.display.flip()
 
-    if board.turn == ai_color:  # AI's turn
-        if ai_color == chess.WHITE:
-            res = Max(board, 0, -9999, 9999)  # Depth is 4 for example
-        else:
-            res = Min(board, 0, -9999, 9999)  # Depth is 4 for example
+    if board.turn == chess.BLACK:  # Let's assume the AI plays as Black
+        print("AI is thinking...")
+        res = Min(board, 0, -9999, 9999)  # Depth is 3 for example
         ai_move = res[1]
         if ai_move:
+            print(f"AI move found: {ai_move}")
             board.push(ai_move)
         else:
             print("No valid AI move found!")
+    elif board.turn == chess.WHITE:  # Stockfish's turn
+        stockfish.set_fen_position(board.fen())
+        result = stockfish.get_best_move()
+        move = chess.Move.from_uci(result)
+        print(f"Stockfish move: {move}")
+        board.push(move)
+
+    if board.is_game_over():
+        result = board.result()
+        games_played += 1
+        if result == '1-0':
+            print("Stockfish (White) won")
+            ai_losses += 1
+            actual_score = 0
+        elif result == '0-1':
+            print("AI (Black) won")
+            ai_wins += 1
+            actual_score = 1
+        else:
+            print("The game was a draw")
+            draws += 1
+            actual_score = 0.5
+        
+        expected_score = 1 / (1 + 10 ** ((opponent_elo - initial_elo) / 400))
+        initial_elo += K * (actual_score - expected_score)
+        initial_elo = int(initial_elo)  # Convert Elo to integer
+        print(f"Current Elo after game {games_played}: {initial_elo}")
+
+        board.reset()
+
+        if games_played >= max_games:
+            running = False
 
     clock.tick(fps)
 
 pygame.quit()
+
+# Print performance metrics
+print(f"Games played: {games_played}")
+print(f"AI Wins: {ai_wins}")
+print(f"AI Losses: {ai_losses}")
+print(f"Draws: {draws}")
+print(f"Estimated Elo rating: {initial_elo}")
