@@ -5,6 +5,7 @@ import random
 
 MAX, MIN = 100000, -100000
 
+
 piece_square_table = {
     chess.PAWN: [
         [0,  0,  0,  0,  0,  0,  0,  0],
@@ -248,28 +249,101 @@ def draw_piece_dragged():
         mouse_pos = pygame.mouse.get_pos()
         chess_pieces.draw(screen, selected_piece, (mouse_pos[0] - chess_pieces.cell_width // 2, mouse_pos[1] - chess_pieces.cell_height // 2))
 
-def show_menu():
-    global running, player_color, board
-    font = pygame.font.Font(None, 36)
-    menu_text = ["Choose who goes first", "1. Human (White)", "2. AI (White)"]
-    while True:
-        screen.fill((0, 0, 0))
-        for i, line in enumerate(menu_text):
-            text = font.render(line, True, (255, 255, 255))
-            screen.blit(text, (screen_size // 2 - text.get_width() // 2, screen_size // 2 - text.get_height() // 2 + i * 40))
-        pygame.display.flip()
+def draw_board_flipped():
+    for row in range(7, -1, -1):  # Reverse the order of rows
+        for col in range(7, -1, -1):  # Reverse the order of columns
+            color = LIGHT_GREEN if (row + col) % 2 == 0 else DARK_GREEN
+            pygame.draw.rect(screen, color, (col * square_size, row * square_size, square_size, square_size))
 
+def draw_pieces_on_board_flipped():
+    for row in range(7, -1, -1):
+        for col in range(7, -1, -1):
+            square = coords_to_square(col, row)
+            piece = board.piece_at(square)
+            if piece and not (dragging and (col, row) == selected_position):
+                chess_pieces.draw(screen, piece, (col * square_size + (square_size - chess_pieces.cell_width) // 2, row * square_size + (square_size - chess_pieces.cell_height) // 2))
+
+def draw_piece_dragged_flipped():
+    if dragging and selected_piece:
+        mouse_pos = pygame.mouse.get_pos()
+        chess_pieces.draw(screen, selected_piece, (mouse_pos[0] - chess_pieces.cell_width // 2, mouse_pos[1] - chess_pieces.cell_height // 2))
+
+def display_checkmate(screen, screen_size):
+
+    box_width = screen_size // 2
+    box_height = screen_size // 5
+    box_x = (screen_size - box_width) // 2
+    box_y = (screen_size - box_height) // 2
+
+    box_color = (139, 69, 19, 255)
+
+    box_surface = pygame.Surface((box_width, box_height))
+
+    box_surface.fill(box_color[:3])
+
+    box_surface.set_alpha(box_color[3])
+
+    font = pygame.font.Font(None, 36)
+    if player_color == chess.WHITE:
+        text = font.render("Checkmate! Black Wins", True, (255, 255, 255))
+    else:
+        text = font.render("Checkmate! White Wins", True, (255, 255, 255))
+    text_x = (box_width - text.get_width()) // 2
+    text_y = (box_height - text.get_height()) // 2
+
+    screen.blit(box_surface, (box_x, box_y))
+    screen.blit(text, (box_x + text_x, box_y + text_y))
+    pygame.display.flip()
+
+def show_menu(screen, screen_size):
+
+    draw_board()
+    draw_pieces_on_board()
+    draw_piece_dragged()
+    
+    box_width = screen_size // 2
+    box_height = screen_size // 5
+    box_x = (screen_size - box_width) // 2
+    box_y = (screen_size - box_height) // 2
+
+    box_color = (139, 69, 19, 255)
+
+    box_surface = pygame.Surface((box_width, box_height))
+
+    box_surface.fill(box_color[:3])
+
+    box_surface.set_alpha(box_color[3])
+
+    font = pygame.font.Font(None, 36)
+    text1 = font.render("1. Play as White", True, (255, 255, 255))
+    text2 = font.render("2. Play as Black", True, (255, 255, 255))
+
+    text1_x = (box_width - text1.get_width()) // 2
+    text1_y = (box_height // 3 - text1.get_height()) // 2
+    text2_x = (box_width - text2.get_width()) // 2
+    text2_y = 2 * box_height // 3 - text2.get_height() // 2
+
+    screen.blit(box_surface, (box_x, box_y))
+    screen.blit(text1, (box_x + text1_x, box_y + text1_y))
+    screen.blit(text2, (box_x + text2_x, box_y + text2_y))
+    pygame.display.flip()
+    
+    option1_rect = pygame.Rect(box_x + text1_x, box_y + text1_y, text1.get_width(), text1.get_height())
+    option2_rect = pygame.Rect(box_x + text2_x, box_y + text2_y, text2.get_width(), text2.get_height())
+
+    # Wait for user input to choose player color
+    while True:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                running = False
-                return
-            elif event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_1:
-                    player_color = chess.WHITE
-                    return
-                elif event.key == pygame.K_2:
-                    player_color = chess.BLACK
-                    return
+                pygame.quit()
+                exit()
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                mouse_pos = pygame.mouse.get_pos()
+                if option1_rect.collidepoint(mouse_pos):
+                    return chess.WHITE
+                elif option2_rect.collidepoint(mouse_pos):
+                    return chess.BLACK
+
 
 # Initialize Pygame
 pygame.init()
@@ -301,10 +375,11 @@ clock = pygame.time.Clock()
 
 # Show the menu to choose who goes first
 player_color = None
-show_menu()
+player_color = show_menu(screen, screen_size)
 
 # Game loop
 while running:
+
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
@@ -330,6 +405,8 @@ while running:
         clock.tick(fps)
         continue
 
+  
+
     if board.turn == chess.BLACK:  # AI plays as Black
         _, ai_move = minimax(max_depth, False, MIN, MAX, board)
         if ai_move:
@@ -349,6 +426,16 @@ while running:
             board.push(ai_move)
             print(f"White (random) {ai_move.uci()}")
 
+    if board.is_checkmate():
+        display_checkmate(screen, screen_size)
+        while True:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    running = False
+            pygame.display.flip()
+
     clock.tick(fps)
+    
+    
 
 pygame.quit()
