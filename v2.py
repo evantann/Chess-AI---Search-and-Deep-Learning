@@ -426,13 +426,19 @@ while running:
             board.push(ai_move)
             print(f"White (random) {ai_move.uci()}")
 
+    pygame.display.flip()
+
     if board.is_checkmate():
+        draw_board()
+        draw_pieces_on_board()
         display_checkmate(screen, screen_size)
-        while True:
+        checkmate_displayed = True
+        while checkmate_displayed:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     running = False
-            pygame.display.flip()
+                    checkmate_displayed = False
+    pygame.display.flip()
 
     clock.tick(fps)
     
