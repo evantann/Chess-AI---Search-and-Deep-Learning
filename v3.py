@@ -3,13 +3,7 @@ import os
 import chess
 import chess.syzygy
 import chess.polyglot
-from stockfish import Stockfish
 import random
-import time
-
-# Initialize Stockfish engine using the pip-installed stockfish package
-stockfish = Stockfish()
-stockfish.set_skill_level(4)  # Set the skill level (0 to 20)
 
 # Initialize Syzygy tablebases
 tablebase = chess.syzygy.Tablebase()
@@ -33,28 +27,7 @@ def get_book_move(board):
             continue
     return None
 
-# Performance metrics
-ai_wins = 0
-ai_losses = 0
-draws = 0
-games_played = 0
-max_games = 10  # Set the number of games to play
-move_times = []  # List to store move calculation times
-
-# Elo calculation parameters
-initial_elo = 1200
-opponent_elo = 1200  # Assuming Stockfish has a very high rating
-K = 32  # K-factor in Elo rating system
-
-MAX, MIN = 10000, -10000  # Use more realistic values for MAX and MIN
-
-def start_move_timer():
-    return time.time()
-
-def stop_move_timer(start_time):
-    end_time = time.time()
-    elapsed_time = end_time - start_time
-    move_times.append(elapsed_time)
+MAX, MIN = 10000, -10000
 
 piece_square_table = {
     chess.PAWN: [
@@ -190,8 +163,8 @@ def get_piece_value(piece):
         chess.KNIGHT: 320,
         chess.BISHOP: 330,
         chess.ROOK: 500,
-        chess.QUEEN: 5000,
-        chess.KING: 30000
+        chess.QUEEN: 900,
+        chess.KING: 20000
     }
     return values[piece.piece_type] if piece.color == chess.WHITE else -values[piece.piece_type]
 
@@ -230,11 +203,80 @@ class Piece(pygame.sprite.Sprite):
             surface.blit(self.spritesheet, coords, self.cells[self.pieces[piece]])
 
 # Helper functions
+
+def graphical_coords_to_coords(graphical_coords):
+    return graphical_coords[0] // square_size, graphical_coords[1] // square_size
+
 def coords_to_square(x, y):
     return chess.square(x, 7 - y)
 
 def square_to_coords(square):
     return chess.square_file(square), 7 - chess.square_rank(square)
+
+def update_selected_legal_moves():
+    global selected_legal_moves
+    selected_legal_moves = set()
+    selected_square = coords_to_square(*selected_position)
+    for move in board.legal_moves:
+        if move.from_square == selected_square:
+            selected_legal_moves.add(move.to_square)
+
+def select_piece():
+    global selected_piece, selected_position, dragging
+    col, row = graphical_coords_to_coords(pygame.mouse.get_pos())
+    square = coords_to_square(col, row)
+    piece = board.piece_at(square)
+    if piece and piece.color == player_color:
+        selected_piece = piece
+        selected_position = (col, row)
+        dragging = True
+        update_selected_legal_moves()
+
+def move_piece():
+    global selected_piece, selected_position, dragging, selected_legal_moves
+    col, row = graphical_coords_to_coords(pygame.mouse.get_pos())
+    square = coords_to_square(col, row)
+    if square in selected_legal_moves:
+        move = chess.Move(coords_to_square(*selected_position), square)
+        board.push(move)
+        print(f"Human {move.uci()}")
+        if board.piece_at(square).piece_type == chess.PAWN and (chess.square_rank(square) == 0 or chess.square_rank(square) == 7):  # Check for pawn promotion
+            board.remove_piece_at(square)
+            x, y = graphical_coords_to_coords(pygame.mouse.get_pos())
+            promotion_piece = prompt_promotion_piece(player_color, x * square_size, y * square_size)
+            board.set_piece_at(square, promotion_piece)
+    selected_piece = None
+    selected_position = None
+    dragging = False
+    selected_legal_moves = set()
+
+def draw_promotion_options(color, x, y):
+    bg_width = 4 * chess_pieces.cell_width
+    bg_height = chess_pieces.cell_height
+    pygame.draw.rect(screen, (255, 255, 255), (x, y, bg_width, bg_height))
+    promotion_options = [chess.QUEEN, chess.ROOK, chess.BISHOP, chess.KNIGHT]
+    option_images = [chess_pieces.spritesheet.subsurface(chess_pieces.cells[chess_pieces.pieces[chess.Piece(pt, color)]]) for pt in promotion_options]
+    for i, image in enumerate(option_images):
+        screen.blit(image, (x + i * chess_pieces.cell_width, y))
+
+def prompt_promotion_piece(color, x, y):
+    promotion_options = [chess.QUEEN, chess.ROOK, chess.BISHOP, chess.KNIGHT]
+    option_rects = [pygame.Rect(x + i * chess_pieces.cell_width, y, chess_pieces.cell_width, chess_pieces.cell_height) for i in range(4)]
+    while True:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                exit()
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                mouse_pos = pygame.mouse.get_pos()
+                for i, rect in enumerate(option_rects):
+                    if rect.collidepoint(mouse_pos):
+                        return chess.Piece(promotion_options[i], color)
+
+        draw_board()
+        draw_pieces_on_board()
+        draw_promotion_options(color, x, y)
+        pygame.display.flip()
 
 # Drawing functions
 def draw_board():
@@ -242,14 +284,45 @@ def draw_board():
         for col in range(8):
             color = LIGHT_GREEN if (row + col) % 2 == 0 else DARK_GREEN
             pygame.draw.rect(screen, color, (col * square_size, row * square_size, square_size, square_size))
+    for move in selected_legal_moves:
+        col, row = square_to_coords(move)
+        pygame.draw.rect(screen, (255, 255, 0), (col * square_size, row * square_size, square_size, square_size))
 
 def draw_pieces_on_board():
     for row in range(8):
         for col in range(8):
             square = coords_to_square(col, row)
             piece = board.piece_at(square)
-            if (piece):
+            if piece and not (dragging and (col, row) == selected_position):
                 chess_pieces.draw(screen, piece, (col * square_size + (square_size - chess_pieces.cell_width) // 2, row * square_size + (square_size - chess_pieces.cell_height) // 2))
+
+def draw_piece_dragged():
+    if dragging and selected_piece:
+        mouse_pos = pygame.mouse.get_pos()
+        chess_pieces.draw(screen, selected_piece, (mouse_pos[0] - chess_pieces.cell_width // 2, mouse_pos[1] - chess_pieces.cell_height // 2))
+
+def show_menu():
+    global running, player_color
+    font = pygame.font.Font(None, 36)
+    menu_text = ["Choose who goes first", "1. Human (White)", "2. Human (Black)"]
+    while True:
+        screen.fill((0, 0, 0))
+        for i, line in enumerate(menu_text):
+            text = font.render(line, True, (255, 255, 255))
+            screen.blit(text, (screen_size // 2 - text.get_width() // 2, screen_size // 2 - text.get_height() // 2 + i * 40))
+        pygame.display.flip()
+
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+                return
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_1:
+                    player_color = chess.WHITE
+                    return
+                elif event.key == pygame.K_2:
+                    player_color = chess.BLACK
+                    return
 
 # Initialize Pygame
 pygame.init()
@@ -270,24 +343,47 @@ LIGHT_GREEN = (238, 238, 210)
 
 board = chess.Board()
 running = True
+selected_piece = None
+selected_position = None
+selected_legal_moves = set()
+dragging = False
+mouse_pos = None
 max_depth = 4
 fps = 60
 clock = pygame.time.Clock()
 
+# Show the menu to choose who goes first
+player_color = None
+show_menu()
+
 # Game loop
-while running and games_played < max_games:
+while running:
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
+        elif event.type == pygame.MOUSEBUTTONDOWN:
+            if selected_piece:
+                move_piece()
+            else:
+                select_piece()
+        elif event.type == pygame.MOUSEBUTTONUP and dragging:
+            move_piece()
+        elif event.type == pygame.MOUSEMOTION and dragging:
+            mouse_pos = pygame.mouse.get_pos()
 
     draw_board()
     draw_pieces_on_board()
 
+    if dragging:
+        draw_piece_dragged()
+
     pygame.display.flip()
 
+    if board.turn == player_color:
+        clock.tick(fps)
+        continue
+
     if board.turn == chess.BLACK:  # AI plays as Black
-        start_time = start_move_timer()  # Start timing
-        time_limit = 15  # Time limit for AI move calculation
         book_move = get_book_move(board)
         if book_move:
             board.push(book_move)
@@ -298,56 +394,34 @@ while running and games_played < max_games:
                 board.push(ai_move)
                 print(f"Black {ai_move.uci()}")
             else:
-                legal_moves = list(board.legal_moves)
-                ai_move = random.choice(legal_moves)
+                ai_move = random.choice(list(board.legal_moves))
                 board.push(ai_move)
                 print(f"Black (random) {ai_move.uci()}")
-        stop_move_timer(start_time)  # Stop timing
-
-    elif board.turn == chess.WHITE:  # Stockfish's turn
-        stockfish.set_fen_position(board.fen())
-        result = stockfish.get_best_move()
-        move = chess.Move.from_uci(result)
-        board.push(move)
-        print(f"White {move.uci()}")
+    elif board.turn == chess.WHITE:  # AI plays as White
+        book_move = get_book_move(board)
+        if book_move:
+            board.push(book_move)
+            print(f"White (book) {book_move.uci()}")
+        else:
+            _, ai_move = minimax(max_depth, True, MIN, MAX, board)
+            if ai_move:
+                board.push(ai_move)
+                print(f"White {ai_move.uci()}")
+            else:
+                ai_move = random.choice(list(board.legal_moves))
+                board.push(ai_move)
+                print(f"White (random) {ai_move.uci()}")
 
     if board.is_game_over():
         result = board.result()
-        games_played += 1
         if result == '1-0':
-            print("Stockfish (White) won")
-            ai_losses += 1
-            actual_score = 0
+            print("Human (White) won" if player_color == chess.WHITE else "AI (White) won")
         elif result == '0-1':
-            print("AI (Black) won")
-            ai_wins += 1
-            actual_score = 1
+            print("AI (Black) won" if player_color == chess.WHITE else "Human (Black) won")
         else:
             print("The game was a draw")
-            draws += 1
-            actual_score = 0.5
-        
-        expected_score = 1 / (1 + 10 ** ((opponent_elo - initial_elo) / 400))
-        initial_elo += K * (actual_score - expected_score)
-        initial_elo = int(initial_elo)  # Convert Elo to integer
-        print(f"Current Elo after game {games_played}: {initial_elo}")
-
         board.reset()
 
     clock.tick(fps)
 
 pygame.quit()
-
-# Print performance metrics
-print(f"Games played: {games_played}")
-print(f"AI Wins: {ai_wins}")
-print(f"AI Losses: {ai_losses}")
-print(f"Draws: {draws}")
-print(f"Estimated Elo rating: {initial_elo}")
-
-# Print average move time
-if move_times:
-    average_move_time = sum(move_times) / len(move_times)
-    print(f"Average move time: {average_move_time} seconds")
-else:
-    print("No move times recorded.")

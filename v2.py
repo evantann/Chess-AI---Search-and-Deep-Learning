@@ -405,8 +405,6 @@ while running:
         clock.tick(fps)
         continue
 
-  
-
     if board.turn == chess.BLACK:  # AI plays as Black
         _, ai_move = minimax(max_depth, False, MIN, MAX, board)
         if ai_move:

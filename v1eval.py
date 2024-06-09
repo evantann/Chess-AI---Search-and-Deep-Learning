@@ -1,12 +1,13 @@
 import pygame
 import os
 import chess
+import time
 from stockfish import Stockfish
 from aiv1 import Min, Max, evaluate_board, gen_children
 
 # Initialize Stockfish engine using the pip-installed stockfish package
 stockfish = Stockfish()
-stockfish.set_skill_level(3)  # Set the skill level (0 to 20)
+stockfish.set_skill_level(0)  # Set the skill level (0 to 20)
 
 running = True
 selected_piece = None
@@ -17,6 +18,7 @@ mouse_pos = None
 max_depth = 3
 fps = 60
 clock = pygame.time.Clock()
+move_times = []  # List to store move calculation times
 
 # Performance metrics
 ai_wins = 0
@@ -30,6 +32,14 @@ initial_elo = 1200
 opponent_elo = 1200  # Assuming Stockfish has a very high rating
 K = 32  # K-factor in Elo rating system
 
+def start_move_timer():
+    return time.time()
+
+def stop_move_timer(start_time):
+    end_time = time.time()
+    elapsed_time = end_time - start_time
+    move_times.append(elapsed_time)
+    
 # Define the Piece class
 class Piece(pygame.sprite.Sprite):
     def __init__(self, filename, cols, rows):
@@ -226,11 +236,13 @@ while running and games_played < max_games:
     pygame.display.flip()
 
     if board.turn == ai_color:  # AI's turn
+        start_time = start_move_timer() 
         if ai_color == chess.WHITE:
             res = Max(board, 0, -9999, 9999, max_depth)  # Depth is adjustable
         else:
             res = Min(board, 0, -9999, 9999, max_depth)  # Depth is adjustable
         ai_move = res[1]
+        stop_move_timer(start_time)
         if ai_move:
             board.push(ai_move)
         else:
@@ -288,3 +300,10 @@ print(f"AI Wins: {ai_wins}")
 print(f"AI Losses: {ai_losses}")
 print(f"Draws: {draws}")
 print(f"Estimated Elo rating: {initial_elo}")
+
+# Calculate average move time
+if move_times:
+    average_move_time = sum(move_times) / len(move_times)
+    print(f"Average move time: {average_move_time} seconds")
+else:
+    print("No move times recorded.")

@@ -3,11 +3,12 @@ import os
 import chess
 from stockfish import Stockfish
 import random
-from aiv2 import minimax, evaluate_board, piece_square_table, MAX, MIN
+import time
+import matplotlib.pyplot as plt
 
 # Initialize Stockfish engine using the pip-installed stockfish package
 stockfish = Stockfish()
-stockfish.set_skill_level(3)  # Set the skill level (0 to 20)
+stockfish.set_skill_level(0)  # Set the skill level (0 to 20)
 
 # Performance metrics
 ai_wins = 0
@@ -15,11 +16,164 @@ ai_losses = 0
 draws = 0
 games_played = 0
 max_games = 10  # Set the number of games to play
+move_times = []  # List to store move calculation times
 
 # Elo calculation parameters
 initial_elo = 1200
 opponent_elo = 1200  # Assuming Stockfish has a very high rating
 K = 32  # K-factor in Elo rating system
+
+MAX, MIN = 10000, -10000  # Use more realistic values for MAX and MIN
+
+def start_move_timer():
+    return time.time()
+
+def stop_move_timer(start_time):
+    end_time = time.time()
+    elapsed_time = end_time - start_time
+    move_times.append(elapsed_time)
+
+piece_square_table = {
+    chess.PAWN: [
+        [0,  0,  0,  0,  0,  0,  0,  0],
+        [50, 50, 50, 50, 50, 50, 50, 50],
+        [10, 10, 20, 30, 30, 20, 10, 10],
+        [5,  5, 10, 25, 25, 10,  5,  5],
+        [0,  0,  0, 20, 20,  0,  0,  0],
+        [5, -5,-10,  0,  0,-10, -5,  5],
+        [5, 10, 10,-20,-20, 10, 10,  5],
+        [0,  0,  0,  0,  0,  0,  0,  0]
+    ],
+    chess.KNIGHT: [
+        [-50,-40,-30,-30,-30,-30,-40,-50],
+        [-40,-20,  0,  0,  0,  0,-20,-40],
+        [-30,  0, 10, 15, 15, 10,  0,-30],
+        [-30,  5, 15, 20, 20, 15,  5,-30],
+        [-30,  0, 15, 20, 20, 15,  0,-30],
+        [-30,  5, 10, 15, 15, 10,  5,-30],
+        [-40,-20,  0,  5,  5,  0,-20,-40],
+        [-50,-40,-30,-30,-30,-30,-40,-50]
+    ],
+    chess.BISHOP: [
+        [-20,-10,-10,-10,-10,-10,-10,-20],
+        [-10,  0,  0,  0,  0,  0,  0,-10],
+        [-10,  0,  5, 10, 10,  5,  0,-10],
+        [-10,  5,  5, 10, 10,  5,  5,-10],
+        [-10,  0, 10, 10, 10, 10,  0,-10],
+        [-10, 10, 10, 10, 10, 10, 10,-10],
+        [-10,  5,  0,  0,  0,  0,  5,-10],
+        [-20,-10,-10,-10,-10,-10,-10,-20]
+    ],
+    chess.ROOK: [
+        [0,  0,  0,  0,  0,  0,  0,  0],
+        [5, 10, 10, 10, 10, 10, 10,  5],
+        [-5,  0,  0,  0,  0,  0,  0, -5],
+        [-5,  0,  0,  0,  0,  0,  0, -5],
+        [-5,  0,  0,  0,  0,  0,  0, -5],
+        [-5,  0,  0,  0,  0,  0,  0, -5],
+        [-5,  0,  0,  0,  0,  0,  0, -5],
+        [0,  0,  0,  5,  5,  0,  0,  0]
+    ],
+    chess.QUEEN: [
+        [-20,-10,-10, -5, -5,-10,-10,-20],
+        [-10,  0,  0,  0,  0,  0,  0,-10],
+        [-10,  0,  5,  5,  5,  5,  0,-10],
+        [-5,  0,  5,  5,  5,  5,  0, -5],
+        [0,  0,  5,  5,  5,  5,  0, -5],
+        [-10,  5,  5,  5,  5,  5,  0,-10],
+        [-10,  0,  5,  0,  0,  0,  0,-10],
+        [-20,-10,-10, -5, -5,-10,-10,-20]
+    ],
+    chess.KING: [
+        [-30,-40,-40,-50,-50,-40,-40,-30],
+        [-30,-40,-40,-50,-50,-40,-40,-30],
+        [-30,-40,-40,-50,-50,-40,-40,-30],
+        [-30,-40,-40,-50,-50,-40,-40,-30],
+        [-20,-30,-30,-40,-40,-30,-30,-20],
+        [-10,-20,-20,-20,-20,-20,-20,-10],
+        [20, 20,  0,  0,  0,  0, 20, 20],
+        [20, 30, 10,  0,  0, 10, 30, 20]
+    ]
+}
+
+def order_moves(board):
+    """
+    Order the moves based on their priority: captures, checks, promotions, and then quiet moves.
+    """
+    move_scores = []
+    for move in board.legal_moves:
+        if board.is_capture(move):
+            # Assign higher score for capturing higher-value pieces
+            captured_piece = board.piece_at(move.to_square)
+            if captured_piece:
+                score = get_piece_value(captured_piece) * 10  # Arbitrary multiplier to prioritize captures
+            else:
+                score = 100  # Default capture score
+        elif board.gives_check(move):
+            score = 50  # Arbitrary score for checks
+        elif move.promotion:
+            score = 75  # Arbitrary score for promotions
+        else:
+            score = 10  # Lower score for quiet moves
+        move_scores.append((score, move))
+
+    # Sort moves by their scores in descending order
+    move_scores.sort(reverse=True, key=lambda x: x[0])
+    ordered_moves = [move for score, move in move_scores]
+
+    return ordered_moves
+
+def minimax(depth, maximizingPlayer, alpha, beta, board):
+    if depth == 0 or board.is_game_over():
+        eval = evaluate_board(board)
+        return eval, None
+
+    best_move = None
+    ordered_moves = order_moves(board)
+
+    if maximizingPlayer:
+        best = MIN
+        for move in ordered_moves:
+            board.push(move)
+            val, _ = minimax(depth - 1, False, alpha, beta, board)
+            board.pop()
+            if val > best:
+                best = val
+                best_move = move
+            alpha = max(alpha, best)
+            if beta <= alpha:
+                break
+    else:
+        best = MAX
+        for move in ordered_moves:
+            board.push(move)
+            val, _ = minimax(depth - 1, True, alpha, beta, board)
+            board.pop()
+            if val < best:
+                best = val
+                best_move = move
+            beta = min(beta, best)
+            if beta <= alpha:
+                break
+    return best, best_move
+
+def evaluate_board(board):
+    if board.is_checkmate():
+        return MIN if board.turn else MAX
+    material = sum(get_piece_value(piece) for piece in board.piece_map().values())
+    positional = sum(piece_square_table[piece.piece_type][square // 8][square % 8] * (1 if piece.color == chess.WHITE else -1) for square, piece in board.piece_map().items())
+    return material + positional
+
+def get_piece_value(piece):
+    values = {
+        chess.PAWN: 100,
+        chess.KNIGHT: 320,
+        chess.BISHOP: 330,
+        chess.ROOK: 500,
+        chess.QUEEN: 900,
+        chess.KING: 20000
+    }
+    return values[piece.piece_type] if piece.color == chess.WHITE else -values[piece.piece_type]
 
 # Define the Piece class
 class Piece(pygame.sprite.Sprite):
@@ -54,31 +208,8 @@ def draw_pieces_on_board():
         for col in range(8):
             square = coords_to_square(col, row)
             piece = board.piece_at(square)
-            if piece:
+            if (piece):
                 chess_pieces.draw(screen, piece, (col * square_size + (square_size - chess_pieces.cell_width) // 2, row * square_size + (square_size - chess_pieces.cell_height) // 2))
-
-def show_menu():
-    global running, ai_color, board
-    font = pygame.font.Font(None, 36)
-    menu_text = ["Choose who goes first", "1. AI (White)", "2. Stockfish (White)"]
-    while True:
-        screen.fill((0, 0, 0))
-        for i, line in enumerate(menu_text):
-            text = font.render(line, True, (255, 255, 255))
-            screen.blit(text, (screen_size // 2 - text.get_width() // 2, screen_size // 2 - text.get_height() // 2 + i * 40))
-        pygame.display.flip()
-
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                running = False
-                return
-            elif event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_1:
-                    ai_color = chess.WHITE
-                    return
-                elif event.key == pygame.K_2:
-                    ai_color = chess.BLACK
-                    return
 
 # Initialize Pygame
 pygame.init()
@@ -103,10 +234,6 @@ max_depth = 4
 fps = 60
 clock = pygame.time.Clock()
 
-# Show the menu to choose who goes first
-ai_color = None
-show_menu()
-
 # Game loop
 while running and games_played < max_games:
     for event in pygame.event.get():
@@ -118,45 +245,37 @@ while running and games_played < max_games:
 
     pygame.display.flip()
 
-    if board.turn == ai_color:  # AI's turn
+    if board.turn == chess.BLACK:  # AI plays as Black
+        start_time = start_move_timer() 
         legal_moves = list(board.legal_moves)
-        _, ai_move = minimax(max_depth, ai_color == chess.WHITE, MIN, MAX, board)
+        _, ai_move = minimax(max_depth, False, MIN, MAX, board)
         if ai_move:
             board.push(ai_move)
-            print(f"AI {ai_move.uci()}")
+            print(f"Black {ai_move.uci()}")
         else:
             ai_move = random.choice(legal_moves)
             board.push(ai_move)
-            print(f"AI (random) {ai_move.uci()}")
+            print(f"Black (random) {ai_move.uci()}")
+            stop_move_timer(start_time)
 
-    elif board.turn != ai_color:  # Stockfish's turn
+    elif board.turn == chess.WHITE:  # Stockfish's turn
         stockfish.set_fen_position(board.fen())
         result = stockfish.get_best_move()
         move = chess.Move.from_uci(result)
         board.push(move)
-        print(f"Stockfish {move.uci()}")
+        print(f"White {move.uci()}")
 
     if board.is_game_over():
         result = board.result()
         games_played += 1
         if result == '1-0':
-            if ai_color == chess.WHITE:
-                print("AI (White) won")
-                ai_wins += 1
-                actual_score = 1
-            else:
-                print("Stockfish (White) won")
-                ai_losses += 1
-                actual_score = 0
+            print("Stockfish (White) won")
+            ai_losses += 1
+            actual_score = 0
         elif result == '0-1':
-            if ai_color == chess.BLACK:
-                print("AI (Black) won")
-                ai_wins += 1
-                actual_score = 1
-            else:
-                print("Stockfish (Black) won")
-                ai_losses += 1
-                actual_score = 0
+            print("AI (Black) won")
+            ai_wins += 1
+            actual_score = 1
         else:
             print("The game was a draw")
             draws += 1
@@ -179,3 +298,31 @@ print(f"AI Wins: {ai_wins}")
 print(f"AI Losses: {ai_losses}")
 print(f"Draws: {draws}")
 print(f"Estimated Elo rating: {initial_elo}")
+
+# Calculate average move time
+if move_times:
+    average_move_time = sum(move_times) / len(move_times)
+    print(f"Average move time: {average_move_time} seconds")
+else:
+    print("No move times recorded.")
+    
+    # Check if there are recorded move times
+if move_times:
+    # Create a figure and axis
+    fig, ax = plt.subplots()
+
+    # Plot the move times
+    ax.plot(range(1, len(move_times) + 1), move_times, marker='o', linestyle='-', color='b', label='Move Time (seconds)')
+
+    # Set the title and labels
+    ax.set_title('Move Times for Each Game')
+    ax.set_xlabel('Move Number')
+    ax.set_ylabel('Time (seconds)')
+
+    # Display the legend
+    ax.legend()
+
+    # Show the plot
+    plt.show()
+else:
+    print("No move times recorded, unable to plot.")
