@@ -128,7 +128,7 @@ def minimax(depth, maximizingPlayer, alpha, beta, board):
 
     if maximizingPlayer:
         best = MIN
-        for move in board.legal_moves:
+        for move in order_moves(board):
             board.push(move)
             val, _ = minimax(depth - 1, False, alpha, beta, board)
             board.pop()
@@ -140,7 +140,7 @@ def minimax(depth, maximizingPlayer, alpha, beta, board):
                 break
     else:
         best = MAX
-        for move in board.legal_moves:
+        for move in order_moves(board):
             board.push(move)
             val, _ = minimax(depth - 1, True, alpha, beta, board)
             board.pop()
